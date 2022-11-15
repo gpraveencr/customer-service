@@ -17,43 +17,44 @@ provider "aws" {
   region     = "us-east-2"
 }
 
-resource "aws_instance" "web-1" {
-  ami           = "ami-097a2df4ac947655f"
-  instance_type = "t2.micro"
-
-  network_interface {
-    network_interface_id = aws_network_interface.foo.id
-    device_index         = 0
-  }
-
-  tags = {
-    Name = "terraform-example"
-  }
+resource "aws_lambda_function" "GetCustomers" {
+  filename      = "terraform-lambda-java-1.0-SNAPSHOT.jar"
+  function_name = "GetCustomers"
+  role          = aws_iam_role.execute-lambda.arn
+  handler       = "handler.LambdaHandler"
+  runtime       = "java8"
 }
 
-resource "aws_vpc" "my_vpc" {
-  cidr_block = "172.16.0.0/16"
-
-  tags = {
-    Name = "terraform-example"
-  }
+resource "aws_apigatewayv2_api" "customer-api-gateway" {
+  name          = "customer-api-gateway"
+  protocol_type = "HTTP"
+  target        = aws_lambda_function.GetCustomers.arn
 }
 
-resource "aws_subnet" "my_subnet" {
-  vpc_id            = aws_vpc.my_vpc.id
-  cidr_block        = "172.16.10.0/24"
-  availability_zone = "us-east-2a"
+resource "aws_lambda_permission" "api-gateway-permissions" {
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.GetCustomers.arn
+  principal     = "apigateway.amazonaws.com"
 
-  tags = {
-    Name = "terraform-example"
-  }
+  source_arn = "${aws_apigatewayv2_api.customer-api-gateway.execution_arn}/*/*"
 }
 
-resource "aws_network_interface" "foo" {
-  subnet_id   = aws_subnet.my_subnet.id
-  private_ips = ["172.16.10.100"]
+resource "aws_iam_role" "execute-lambda" {
+  name = "execute-lambda"
 
-  tags = {
-    Name = "terraform-example"
-  }
+  # Terraform's "jsonencode" function converts a
+  # Terraform expression result to valid JSON syntax.
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Sid    = ""
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      },
+    ]
+  })
 }
